@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+*.sqlite3
+*.db
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# garak outputs / app data
+data/runs/
+data/reports/
+*.report.jsonl
+*.report.html
+*.hitlog.jsonl
+garak.log
+
+# secrets
+.secret.key
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code local tooling config (machine-local paths, not project config)
+.claude/
+
+# Internal planning docs (kept local, not published)
+docs/
+

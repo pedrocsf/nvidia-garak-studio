@@ -1,0 +1,15 @@
+# Backend image build context (root). Exclude the frontend and local state.
+web/
+data/
+docs/
+.git/
+.claude/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.secret.key
+*.sqlite3
+*.db
+docker-compose.yml

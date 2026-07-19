@@ -1,0 +1,40 @@
+# Garak Studio — full stack for team/production use.
+# For single-user local dev you can skip this and run run.py (repo root) +
+# `npm run dev` in web/ directly (SQLite, in-process broker).
+services:
+  backend:
+    build: .
+    environment:
+      GARAK_STUDIO_DATABASE_URL: postgresql+asyncpg://garak:garak@postgres/garakstudio
+      GARAK_STUDIO_SECRET_KEY: ${GARAK_STUDIO_SECRET_KEY:-please-change-me}
+      PYTHONUTF8: "1"
+    volumes:
+      - garak_data:/app/data
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./web
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: garak
+      POSTGRES_PASSWORD: garak
+      POSTGRES_DB: garakstudio
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  garak_data:
+  pg_data:
