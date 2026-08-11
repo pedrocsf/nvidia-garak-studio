@@ -17,7 +17,7 @@ def _garak_base_command() -> list[str]:
 
 def _ollama_rest_config(model: str, host: str) -> dict[str, Any]:
     return {
-        "rest.RestGenerator": {
+        "rest": {
             "name": f"ollama:{model}",
             "uri": f"{host.rstrip('/')}/api/generate",
             "method": "post",
