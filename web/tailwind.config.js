@@ -1,4 +1,3 @@
-/** NVIDIA-minimalist theme tokens. Accent green used sparingly as punctuation. */
 export default {
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   darkMode: "class",

@@ -1,4 +1,3 @@
-# Backend image build context (root). Exclude the frontend and local state.
 web/
 data/
 docs/

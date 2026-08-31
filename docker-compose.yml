@@ -1,6 +1,3 @@
-# Garak Studio — full stack for team/production use.
-# For single-user local dev you can skip this and run run.py (repo root) +
-# `npm run dev` in web/ directly (SQLite, in-process broker).
 services:
   backend:
     build: .
