@@ -1,99 +1,161 @@
 # Garak Studio
 
-A full web UI and orchestration layer for [garak](https://github.com/NVIDIA/garak),
-NVIDIA's LLM vulnerability scanner. Garak Studio exposes garak's complete surface
-(all probes, detectors, generators, harnesses, and buffs) through a
-lab-console-styled interface, and adds capabilities no community tool offers
-today: dynamic plugin introspection, OWASP LLM Top 10 risk mapping, an
-attack-surface score with history, run-to-run diffing, multi-turn conversation
-replay, and an issue-tracker-style triage workflow.
+Web UI and orchestration layer for [garak](https://github.com/NVIDIA/garak), the
+LLM vulnerability scanner. It drives garak as a subprocess, streams the run live,
+and indexes the resulting JSONL report into a queryable database for scoring,
+diffing and triage.
 
-> **Design principle:** the UI never hardcodes plugin lists. It introspects the
-> *installed* garak at runtime, so new probes (including your own custom ones)
-> appear automatically without any code change here.
+Plugin lists are never hardcoded: the backend introspects the *installed* garak at
+runtime, so custom or newly released probes appear in the UI with no code change.
 
 ## Architecture
 
 ```
-app/       FastAPI backend + SQLAlchemy (SQLite default) + WebSocket streaming
-           ├─ introspection/  dynamic garak plugin + model discovery
-           ├─ orchestrator/   garak subprocess launch + live streaming + cancel
-           ├─ parsers/        streaming JSONL report parser + DB indexer
-           └─ api/            REST routers
-run.py     backend entrypoint (repo root)
-web/       React + Vite + Tailwind frontend (NVIDIA-minimalist theme)
-data/      run artifacts (garak's native JSONL / hit log / HTML) + SQLite db
+app/                     FastAPI + SQLAlchemy (async) + WebSocket
+├─ introspection/        garak plugin enumeration (service.py) and
+│                        live model discovery per backend (discovery.py)
+├─ orchestrator/         command.py  → scan config  → garak argv + env
+│                        runner.py   → subprocess, stdout stream, cancel, finalize
+├─ parsers/              report.py         → eval rows + hits from *.report.jsonl
+│                        timeline.py       → per-event timeline model + live tailer
+│                        timeline_store.py → timeline index/query (DB or file)
+│                        indexer.py        → post-run persistence + score
+├─ api/                  REST routers (see table below)
+├─ ws/gateway.py         in-process pub/sub broker → /ws/runs/{id}
+├─ models/               ORM: runs, probe_results, hits, run_events, secrets, …
+└─ core/                 settings, async engine/session, Fernet secret storage
+run.py                   uvicorn entrypoint (port 8000)
+web/                     React 18 + Vite + Tailwind SPA (port 5173, proxies /api, /ws)
+data/                    SQLite db + per-run artifact directories
 ```
 
-The raw garak JSONL/HTML remain the **source of truth**; the backend parses and
-indexes derived metrics into the database so screens load fast without
-re-reading multi-GB reports.
+garak's native JSONL/HTML output stays the **source of truth**. The database only
+holds derived, indexed values so screens load without re-reading multi-GB reports.
 
-## Prerequisites
+## Execution flow
 
-- **Python 3.11** with **garak** installed in the same interpreter:
-  ```
-  pip install garak
-  ```
-  (Introspection imports garak as a library. On Windows, prefer
-  `pip install --prefer-binary garak` to avoid source builds.)
-- **Node 18+**
+1. **Build** — `POST /api/scans` persists a `Run` (status `queued`) with the scan
+   config and schedules `runner.start_run` as an asyncio task.
+2. **Launch** — `build_invocation()` translates the config into `python -m garak`
+   argv. Generator options are written to a per-run `garak_config.json` passed via
+   `--config`; Ollama targets are mapped onto garak's `rest` generator against
+   `/api/generate`. `XDG_DATA_HOME` is pinned to `data/runs/<run_id>/` so every
+   artifact garak writes lands in that run's directory. Stored secrets are
+   decrypted into the child environment only.
+3. **Stream** — the process runs with `stdout`/`stderr` merged and line-tailed.
+   Each line is appended to `console.jsonl`, scanned for the current probe and a
+   `NN%` progress token, and published to the broker. In parallel a poller tails
+   the growing `*.report.jsonl` and emits structured timeline events. Everything
+   fans out over `/ws/runs/{run_id}` to the Live and Monitor screens.
+4. **Cancel** — `POST /api/runs/{id}/cancel` signals the whole process group
+   (`SIGTERM` → `SIGKILL`, `CTRL_BREAK` on Windows), never the API process.
+5. **Index** — on exit 0, `indexer.index_run` parses the report into
+   `probe_results` (totals, pass rate, CI bounds, probe tags) and `hits`
+   (score ≥ 0.5, capped at 5000, with prompt/output/turns), computes the
+   attack-surface score, then `timeline_store.index_timeline` writes the full
+   event index. Run status becomes `completed`.
+6. **Consume** — report, risk matrix, timeline, run-to-run diff, triage, SARIF
+   export.
 
-## Quick start (single-user, local)
+Reports produced elsewhere can enter the same pipeline via
+`POST /api/reports/import` (steps 5–6 only).
 
-**Backend** (from the repo root):
-```
+## API surface
+
+| Prefix | Purpose |
+|---|---|
+| `/api/plugins/{category}` | Introspected probes, detectors, generators, harnesses, buffs (+ `/summary`, `/refresh`) |
+| `/api/discovery/models` | Live model listing for ollama / openai / generic OpenAI-compatible endpoints |
+| `/api/scans` | Create run, cost estimate, scan-profile CRUD |
+| `/api/runs/{id}` | Run detail, probe results, cancel, OWASP risk matrix |
+| `/api/runs/{id}/timeline` | Paged/filtered/sorted events, event detail, rebuild, NDJSON export, meta |
+| `/api/reports/{id}` | Hits (search/filter), native HTML, JSONL download, SARIF export, import |
+| `/api/compare?a=&b=` | Per-probe pass-rate delta with significance flag (CI overlap, else ≥10pp) |
+| `/api/triage` | Hit status/notes/assignee, queue, stats |
+| `/api/settings` | garak availability/version, encrypted secret CRUD |
+| `/ws/runs/{id}` | Live `status` / `log` / `probe` / `timeline` frames |
+
+Interactive docs: <http://localhost:8000/docs>.
+
+## Requirements
+
+- Python 3.11+ with **garak importable in the same interpreter** (`pip install garak`;
+  on Windows use `pip install --prefer-binary garak`). Introspection imports garak as
+  a library, so a garak in a different venv will not be discovered.
+- Node 18+.
+
+## Quick start
+
+Backend, from the repo root:
+
+```bash
 pip install -r requirements.txt
-python run.py
+python run.py                 # http://localhost:8000, SQLite auto-created in data/
 ```
-Serves the API at http://localhost:8000 (SQLite auto-created under `data/`).
 
-**Frontend** (from `web/`):
-```
+Frontend, from `web/`:
+
+```bash
 npm install
-npm run dev
+npm run dev                   # http://localhost:5173
 ```
-Opens http://localhost:5173, proxying `/api` and `/ws` to the backend.
 
-Open the app, go to **New Scan**, pick the `test` generator with model name
-`Blank` and probe `dan.DanInTheWild` for a credential-free smoke run.
+Smoke test with no credentials: **New Scan** → generator `test`, model name
+`Blank`, probe `dan.DanInTheWild`.
 
-## Full stack (team / production)
+Full stack (backend + frontend + Postgres + Redis):
 
+```bash
+GARAK_STUDIO_SECRET_KEY=<long-random-string> docker compose up --build
 ```
-docker compose up --build
-```
-Brings up backend + frontend + Postgres + Redis. Set `GARAK_STUDIO_SECRET_KEY`
-to a strong value so stored API keys are encrypted with a stable master key.
 
 ## Configuration
 
-All settings are environment variables prefixed `GARAK_STUDIO_` (see
-`.env.example`). Notable ones:
+Environment variables, prefix `GARAK_STUDIO_` (see `.env.example`):
 
-| Variable | Purpose |
-|---|---|
-| `GARAK_STUDIO_DATABASE_URL` | SQLite (default) or `postgresql+asyncpg://…` |
-| `GARAK_STUDIO_GARAK_COMMAND` | Override how garak is launched (venv/conda) |
-| `GARAK_STUDIO_SECRET_KEY` | Master key for encrypting stored secrets |
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | SQLite in `data/` | Or `postgresql+asyncpg://…` |
+| `DATA_DIR` | `./data` | Run artifacts and SQLite file |
+| `GARAK_COMMAND` | `python -m garak` | Override how garak is launched (venv/conda) |
+| `SECRET_KEY` | generated `.secret.key` | Master key for secret encryption |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama daemon for discovery and REST targets |
+| `CORS_ORIGINS` | localhost:5173 | Allowed browser origins |
+| `TIMELINE_POLL_INTERVAL` | `0.75` | Seconds between live report tails |
+
+Set `GARAK_STUDIO_SECRET_KEY` in any deployment you care about: without it the
+Fernet key is generated into `.secret.key` at the repo root, and losing that file
+makes stored API keys undecryptable.
 
 ## Security notes
 
-- **Secrets** (API keys) are encrypted at rest (Fernet) and never returned to
-  the frontend after saving — only a masked hint.
-- **Model output is sensitive.** garak's `xss` probe deliberately elicits XSS
-  payloads, so the UI renders all prompts/outputs as plain text (never as HTML),
-  and the native garak HTML report is served for viewing in a sandboxed context
+- **Secrets** are encrypted at rest (Fernet) and returned to the frontend only as
+  a masked hint; plaintext exists solely in the garak child process environment.
+- **Model output is hostile by construction.** Probes such as `xss` deliberately
+  elicit injection payloads, so the UI renders every prompt and output as plain
+  text, never as HTML.
+- **Isolation.** garak runs in its own process group; cancelling kills that tree
   only.
-- **Execution isolation:** garak runs in a separate OS process; cancelling kills
-  only that process tree, never the API.
+- **No authentication.** The API is unauthenticated and the ORM carries roles that
+  are not yet enforced — do not expose this on an untrusted network. Scan only
+  systems you are authorised to test.
 
-## Status vs. the roadmap
+## Status
 
-Implemented end-to-end: dynamic introspection, scan builder, live streaming
-runs with cancel, native report parsing/indexing, attack-surface score, OWASP
-risk matrix, run diffing with statistical-significance flags, hit triage,
-external report import, SARIF export, encrypted secrets. Multi-turn replay
-renders whenever a probe emits conversation turns. Scheduling, RBAC enforcement,
-and the sandboxed custom-plugin editor are scaffolded in the data model but not
-yet wired to UI.
+Implemented end-to-end: plugin introspection, scan builder with cost estimate,
+live streaming runs with cancel, report parsing/indexing, attack-surface score,
+OWASP risk matrix, timeline (live + indexed, searchable, exportable), run diffing
+with significance flags, hit triage, report import, SARIF export, encrypted
+secrets.
+
+Modelled but not wired to the UI: scheduling (`schedules`), RBAC enforcement
+(`users.role`), audit-log surfacing.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Free to use,
+modify, distribute and sell, commercially or otherwise, with attribution and an
+express patent grant.
+
+Not affiliated with or endorsed by NVIDIA Corporation or the garak maintainers;
+those names identify the upstream software this project interoperates with.

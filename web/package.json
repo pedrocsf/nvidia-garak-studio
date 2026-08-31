@@ -2,6 +2,8 @@
   "name": "garak-studio-frontend",
   "private": true,
   "version": "0.1.0",
+  "description": "React frontend for Garak Studio, a web UI and orchestration layer for the garak LLM vulnerability scanner.",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

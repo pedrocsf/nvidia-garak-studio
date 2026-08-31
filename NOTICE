@@ -1,0 +1,39 @@
+Garak Studio
+Copyright 2026 Garak Studio contributors
+
+This product includes software developed by the Garak Studio contributors.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------------
+
+Garak Studio is an independent orchestration layer. It does not vendor or
+redistribute third-party source; the components below are installed separately
+by pip / npm at build time and remain under their own licenses.
+
+  garak — LLM vulnerability scanner
+    https://github.com/NVIDIA/garak
+    Copyright (c) 2023 Leon Derczynski
+    Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES
+    Apache License 2.0
+
+  Backend runtime dependencies (see requirements.txt):
+    FastAPI, Starlette, Uvicorn, Pydantic, pydantic-settings,
+    SQLAlchemy, aiosqlite, httpx, python-multipart — MIT / BSD-3-Clause
+    cryptography — Apache-2.0 OR BSD-3-Clause
+
+  Frontend runtime dependencies (see web/package.json):
+    React, React DOM, React Router, TanStack Query, Recharts,
+    lucide-react, Vite, Tailwind CSS, PostCSS, Autoprefixer — MIT / ISC
+
+--------------------------------------------------------------------------------
+Trademarks
+--------------------------------------------------------------------------------
+
+This project is not affiliated with, endorsed by, or sponsored by NVIDIA
+Corporation or the garak maintainers. "NVIDIA" is a trademark of NVIDIA
+Corporation; "garak" is the name of the upstream project. Both are used here
+only to identify the software Garak Studio interoperates with, as permitted by
+nominative fair use. The Apache License 2.0 grants no trademark rights
+(section 6).
