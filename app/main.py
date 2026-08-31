@@ -14,6 +14,7 @@ from app.api import (
     runs,
     scans,
     settings_routes,
+    timeline,
     triage,
 )
 from app.core.config import settings
@@ -46,6 +47,7 @@ app.include_router(plugins.router, prefix="/api/plugins", tags=["plugins"])
 app.include_router(discovery.router, prefix="/api/discovery", tags=["discovery"])
 app.include_router(scans.router, prefix="/api/scans", tags=["scans"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
+app.include_router(timeline.router, prefix="/api/runs", tags=["timeline"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(compare.router, prefix="/api/compare", tags=["compare"])
 app.include_router(triage.router, prefix="/api/triage", tags=["triage"])

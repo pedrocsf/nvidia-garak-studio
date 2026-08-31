@@ -14,6 +14,7 @@ import { api } from "./lib/api";
 import Dashboard from "./pages/Dashboard";
 import ScanBuilder from "./pages/ScanBuilder";
 import LiveRun from "./pages/LiveRun";
+import Monitor from "./pages/Monitor";
 import Runs from "./pages/Runs";
 import Report from "./pages/Report";
 import Compare from "./pages/Compare";
@@ -82,6 +83,7 @@ export default function App() {
           <Route path="/scan" element={<ScanBuilder />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/runs/:runId/live" element={<LiveRun />} />
+          <Route path="/runs/:runId/monitor" element={<Monitor />} />
           <Route path="/runs/:runId" element={<Report />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/triage" element={<Triage />} />

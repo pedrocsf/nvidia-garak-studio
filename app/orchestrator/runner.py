@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import os
 import re
 import signal
@@ -17,10 +19,14 @@ from app.core.database import SessionLocal
 from app.core.security import decrypt_secret
 from app.models import Run, RunStatus, Secret
 from app.orchestrator.command import build_invocation, redact_command
+from app.parsers import timeline_store
+from app.parsers.timeline import LiveTimelineReader
 from app.ws.gateway import broker
 
 _PROBE_LINE = re.compile(r"(probes\.[\w.]+)")
 _PERCENT = re.compile(r"(\d{1,3})%\|")
+
+_TIMELINE_BATCH = 50
 
 _processes: dict[str, asyncio.subprocess.Process] = {}
 
@@ -44,6 +50,72 @@ async def _load_secret_env() -> dict[str, str]:
 
 async def _publish(run_id: str, message: dict[str, Any]) -> None:
     await broker.publish(run_id, message)
+
+
+async def _publish_timeline(run_id: str, events: list) -> None:
+    for start in range(0, len(events), _TIMELINE_BATCH):
+        chunk = events[start : start + _TIMELINE_BATCH]
+        await _publish(run_id, {
+            "type": "timeline",
+            "events": [e.as_row() for e in chunk],
+        })
+
+
+async def _stream_timeline(run_id: str, run_dir: Path, stop: asyncio.Event) -> None:
+    interval = settings.timeline_poll_interval
+    reader: LiveTimelineReader | None = None
+
+    async def _drain() -> None:
+        nonlocal reader
+        if reader is None:
+            report = timeline_store.find_report(run_dir)
+            if report is None:
+                return
+            reader = LiveTimelineReader(report)
+            await _publish(run_id, {"type": "timeline_ready", "report": str(report)})
+        events = await asyncio.to_thread(reader.poll)
+        if events:
+            await _publish_timeline(run_id, events)
+
+    try:
+        while not stop.is_set():
+            try:
+                await _drain()
+            except Exception:
+                pass
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=interval)
+        await asyncio.sleep(0.2)
+        with contextlib.suppress(Exception):
+            await _drain()
+    except asyncio.CancelledError:
+        raise
+
+
+class _ConsoleLog:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._fh = None
+
+    def open(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = self.path.open("a", encoding="utf-8", buffering=1)
+
+    def write(self, line: str) -> None:
+        if self._fh is None:
+            return
+        try:
+            self._fh.write(json.dumps(
+                {"ts": _now().isoformat(), "line": line}, ensure_ascii=False
+            ) + "\n")
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        if self._fh is not None:
+            with contextlib.suppress(Exception):
+                self._fh.close()
+            self._fh = None
 
 
 async def _set_status(run_id: str, **fields) -> None:
@@ -88,7 +160,7 @@ async def start_run(run_id: str) -> None:
             creationflags = getattr(
                 __import__("subprocess"), "CREATE_NEW_PROCESS_GROUP", 0
             )
-        else:  # pragma: no cover
+        else:
             preexec_fn = os.setsid
 
         proc = await asyncio.create_subprocess_exec(
@@ -106,11 +178,17 @@ async def start_run(run_id: str) -> None:
 
     _processes[run_id] = proc
 
+    console = _ConsoleLog(timeline_store.console_path_for(run_id))
+    console.open()
+    stop_tail = asyncio.Event()
+    tail_task = asyncio.create_task(_stream_timeline(run_id, run_dir, stop_tail))
+
     current_probe: str | None = None
     try:
         assert proc.stdout is not None
         async for raw in proc.stdout:
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            console.write(line)
             event: dict[str, Any] = {"type": "log", "line": line}
 
             m = _PROBE_LINE.search(line)
@@ -128,16 +206,48 @@ async def start_run(run_id: str) -> None:
         exit_code = await proc.wait()
     except asyncio.CancelledError:
         await _terminate(proc)
+        await _stop_tail(tail_task, stop_tail)
+        console.close()
+        await _index_timeline(run_id, run_dir)
         await _set_status(run_id, status=RunStatus.cancelled, finished_at=_now())
         await _publish(run_id, {"type": "status", "status": "cancelled"})
         raise
     finally:
         _processes.pop(run_id, None)
 
+    await _stop_tail(tail_task, stop_tail)
+    console.close()
+
     if exit_code == 0:
         await _finalize_success(run_id, run_dir)
     else:
+        await _index_timeline(run_id, run_dir)
         await _fail(run_id, f"garak exited with code {exit_code}", exit_code=exit_code)
+
+
+async def _stop_tail(task: asyncio.Task, stop: asyncio.Event) -> None:
+    stop.set()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=5)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        task.cancel()
+    except Exception:
+        pass
+
+
+async def _index_timeline(run_id: str, run_dir: Path) -> None:
+    report = timeline_store.find_report(run_dir)
+    console_path = timeline_store.console_path_for(run_id)
+    if report is None and not console_path.exists():
+        return
+    try:
+        async with SessionLocal() as session:
+            await timeline_store.index_timeline(
+                session, run_id, report,
+                console_path if console_path.exists() else None,
+            )
+    except Exception:
+        pass
 
 
 async def _finalize_success(run_id: str, run_dir: Path) -> None:
@@ -187,7 +297,7 @@ async def _terminate(proc: asyncio.subprocess.Process) -> None:
             await asyncio.sleep(1)
             if proc.returncode is None:
                 proc.kill()
-        else:  # pragma: no cover
+        else:
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             await asyncio.sleep(2)
             if proc.returncode is None:

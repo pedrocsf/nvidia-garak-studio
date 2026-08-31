@@ -9,6 +9,7 @@ from sqlalchemy import delete
 from app.core.database import SessionLocal
 from app.introspection import service as intro
 from app.models import Hit, ProbeResult, Run
+from app.parsers import timeline_store
 from app.parsers.report import ParsedReport, parse_report
 
 
@@ -93,10 +94,24 @@ async def index_run(run_id: str, run_dir: Path) -> dict[str, Any]:
 
         await session.commit()
 
+    timeline_result: dict[str, Any] = {}
+    console_path = timeline_store.console_path_for(run_id)
+    try:
+        async with SessionLocal() as session:
+            timeline_result = await timeline_store.index_timeline(
+                session,
+                run_id,
+                Path(report_path),
+                console_path if console_path.exists() else None,
+            )
+    except Exception as exc:
+        timeline_result = {"error": str(exc)}
+
     return {
         "total_attempts": parsed.total_attempts,
         "total_hits": parsed.total_hits,
         "attack_surface_score": score,
         "garak_run_uuid": parsed.garak_run_uuid,
+        "timeline": timeline_result,
         **artifacts,
     }

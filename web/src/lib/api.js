@@ -42,6 +42,22 @@ export const api = {
   cancelRun: (id) => request(`/runs/${id}/cancel`, { method: "POST" }),
   riskMatrix: (id) => request(`/runs/${id}/risk-matrix`),
 
+  timeline: (id, params = {}) => {
+    const clean = Object.fromEntries(
+      Object.entries(params).filter(([, v]) => v !== "" && v != null)
+    );
+    const q = new URLSearchParams(clean).toString();
+    return request(`/runs/${id}/timeline${q ? `?${q}` : ""}`);
+  },
+  timelineEvent: (id, seq, params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request(`/runs/${id}/timeline/event/${seq}${q ? `?${q}` : ""}`);
+  },
+  timelineMeta: (id) => request(`/runs/${id}/timeline/meta`),
+  rebuildTimeline: (id) =>
+    request(`/runs/${id}/timeline/rebuild`, { method: "POST" }),
+  timelineExportUrl: (id) => `/api/runs/${id}/timeline/export`,
+
   hits: (id, params = {}) => {
     const q = new URLSearchParams(params).toString();
     return request(`/reports/${id}/hits${q ? `?${q}` : ""}`);

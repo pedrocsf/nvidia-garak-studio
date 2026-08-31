@@ -11,6 +11,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -119,6 +120,9 @@ class Run(Base):
     hits: Mapped[list["Hit"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )
+    events: Mapped[list["RunEvent"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
 
 
 class ProbeResult(Base):
@@ -164,6 +168,36 @@ class Hit(Base):
     )
 
     run: Mapped[Run] = relationship(back_populates="hits")
+
+
+class RunEvent(Base):
+    __tablename__ = "run_events"
+    __table_args__ = (
+        Index("ix_run_events_run_stream_seq", "run_id", "stream", "seq"),
+        Index("ix_run_events_run_kind", "run_id", "kind"),
+        Index("ix_run_events_run_outcome", "run_id", "outcome"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), index=True)
+    stream: Mapped[str] = mapped_column(String(16), default="report")
+    seq: Mapped[int] = mapped_column(Integer, default=0)
+
+    kind: Mapped[str] = mapped_column(String(32), default="")
+    title: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    ts: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    probe: Mapped[str] = mapped_column(String(255), default="", index=True)
+    detector: Mapped[str] = mapped_column(String(512), default="")
+    outcome: Mapped[str] = mapped_column(String(16), default="info")
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    attempt_uuid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    search_text: Mapped[str] = mapped_column(Text, default="")
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+
+    run: Mapped[Run] = relationship(back_populates="events")
 
 
 class Secret(Base):

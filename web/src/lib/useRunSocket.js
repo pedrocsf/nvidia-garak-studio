@@ -9,6 +9,7 @@ export function useRunSocket(runId, { enabled = true } = {}) {
   const [turns, setTurns] = useState([]);
   const [connected, setConnected] = useState(false);
   const [metrics, setMetrics] = useState(null);
+  const [timelineEvents, setTimelineEvents] = useState([]);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -42,6 +43,11 @@ export function useRunSocket(runId, { enabled = true } = {}) {
           case "turn":
             setTurns((prev) => [...prev, msg]);
             break;
+          case "timeline":
+            if (Array.isArray(msg.events) && msg.events.length) {
+              setTimelineEvents((prev) => [...prev, ...msg.events].slice(-5000));
+            }
+            break;
           case "status":
             setStatus(msg.status);
             if (msg.metrics) setMetrics(msg.metrics);
@@ -60,5 +66,5 @@ export function useRunSocket(runId, { enabled = true } = {}) {
     };
   }, [runId, enabled]);
 
-  return { logs, status, probe, percent, turns, connected, metrics };
+  return { logs, status, probe, percent, turns, connected, metrics, timelineEvents };
 }

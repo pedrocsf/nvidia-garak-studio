@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     ollama_host: str = "http://localhost:11434"
 
+    timeline_max_events: int = 200_000
+    timeline_poll_interval: float = 0.75
+
     @property
     def runs_dir(self) -> Path:
         return self.data_dir / "runs"

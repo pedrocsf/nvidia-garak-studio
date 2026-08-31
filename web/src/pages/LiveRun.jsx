@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { XCircle, Terminal, MessagesSquare } from "lucide-react";
+import { Activity, XCircle, Terminal, MessagesSquare } from "lucide-react";
 import { api } from "../lib/api";
 import { useRunSocket } from "../lib/useRunSocket";
 import { Page, Card, StatusBadge, Meter } from "../components/ui";
@@ -55,11 +55,16 @@ export default function LiveRun() {
       title="Live Run"
       subtitle={run?.label || runId}
       actions={
-        running ? (
-          <button className="btn-ghost text-danger" onClick={cancel}>
-            <XCircle size={16} /> Cancel
-          </button>
-        ) : null
+        <div className="flex items-center gap-2">
+          <Link className="btn-ghost" to={`/runs/${runId}/monitor`}>
+            <Activity size={16} /> Monitor
+          </Link>
+          {running && (
+            <button className="btn-ghost text-danger" onClick={cancel}>
+              <XCircle size={16} /> Cancel
+            </button>
+          )}
+        </div>
       }
     >
       <div className="grid grid-cols-3 gap-4 mb-5">

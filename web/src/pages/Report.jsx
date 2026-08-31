@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileJson, ShieldAlert } from "lucide-react";
+import { Download, FileJson, History, ShieldAlert } from "lucide-react";
 import { api } from "../lib/api";
 import { Page, Card, Stat, ScoreTone, Meter, StatusBadge } from "../components/ui";
 import RiskMatrix from "../components/RiskMatrix";
@@ -31,6 +31,9 @@ export default function Report() {
       }
       actions={
         <div className="flex gap-2">
+          <Link className="btn-ghost" to={`/runs/${runId}/monitor`}>
+            <History size={15} /> History
+          </Link>
           <a className="btn-ghost" href={`/api/reports/${runId}/download/jsonl`}>
             <FileJson size={15} /> JSONL
           </a>
